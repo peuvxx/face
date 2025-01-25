@@ -1,95 +1,29 @@
 const video = document.getElementById('video');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
-let drawing = false;
+
+let squares = []; // 잔상 네모를 저장하는 배열
+let lastHandTime = Date.now(); // 마지막으로 손이 감지된 시간
+let currentColor = getRandomColor(); // 초기 색상 설정
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    // faceapi가 로드되었는지 확인
-    if (typeof faceapi === 'undefined') {
-      throw new Error('faceapi is not defined. Ensure that face-api.js is properly loaded.');
-    }
-
     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
     video.srcObject = stream;
 
-    // 모델 로드
-    await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
-    await faceapi.nets.faceLandmark68Net.loadFromUri('./models');
-    console.log('모델 로드 완료');
-
-    detectFace();
-    detectHands();
-  } catch (err) {
-    console.error('초기화 오류:', err);
-  }
-});
-
-async function detectFace() {
-  const displaySize = { width: window.innerWidth, height: window.innerHeight };
-  canvas.width = displaySize.width;
-  canvas.height = displaySize.height;
-
-  setInterval(async () => {
-    try {
-      const detections = await faceapi
-        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
-        .withFaceLandmarks();
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height); // 캔버스 초기화
-
-      const resizedDetections = faceapi.resizeResults(detections, displaySize);
-
-      resizedDetections.forEach(detection => {
-        const landmarks = detection.landmarks;
-        const nose = landmarks.getNose(); // 코 좌표
-        const leftEye = landmarks.getLeftEye(); // 왼쪽 눈 좌표
-        const rightEye = landmarks.getRightEye(); // 오른쪽 눈 좌표
-        const mouth = landmarks.getMouth(); // 입 좌표
-
-        drawSquare(nose[3], 20, 'magenta'); // 코 위 네모
-        drawSquare(leftEye[0], 15, 'magenta'); // 왼쪽 눈 위 네모
-        drawSquare(rightEye[0], 15, 'magenta'); // 오른쪽 눈 위 네모
-        drawSquare(mouth[3], 25, 'magenta'); // 입 위 네모
-      });
-    } catch (err) {
-      console.error('얼굴 감지 오류:', err);
-    }
-  }, 100);
-}
-
-function drawSquare(position, size, color) {
-  ctx.fillStyle = color;
-  ctx.fillRect(
-    position.x * canvas.width - size / 2,
-    position.y * canvas.height - size / 2,
-    size,
-    size
-  );
-}
-
-function detectHands() {
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
     });
-  
+
     hands.setOptions({
       maxNumHands: 1,
       modelComplexity: 1,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-  
-    hands.onResults((results) => {
-      if (results.multiHandLandmarks) {
-        results.multiHandLandmarks.forEach((landmarks) => {
-          const indexFingerTip = landmarks[8]; // 검지 끝 좌표
-          drawHandSquare(indexFingerTip);
-        });
-      }
-    });
-  
-    // Camera 객체 사용
+
+    hands.onResults(onResults);
+
     const camera = new Camera(video, {
       onFrame: async () => {
         await hands.send({ image: video });
@@ -97,30 +31,76 @@ function detectHands() {
       width: 1280,
       height: 720,
     });
-  
-    camera.start();
-  }
-  
-  function drawHandSquare(position) {
-    ctx.fillStyle = 'cyan';
-    ctx.fillRect(
-      position.x * canvas.width - 10,
-      position.y * canvas.height - 10,
-      20,
-      20
-    );
-  }
-  
 
-// 마우스 이벤트로 네모 그리기
-canvas.addEventListener('mousedown', () => (drawing = true));
-canvas.addEventListener('mouseup', () => (drawing = false));
-canvas.addEventListener('mousemove', (e) => {
-  if (drawing) {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    ctx.fillStyle = 'cyan';
-    ctx.fillRect(x - 10, y - 10, 20, 20);
+    camera.start();
+
+    // 화면 사방으로 흩어지는 애니메이션
+    setInterval(updateSquares, 1000 / 60); // 60fps
+  } catch (err) {
+    console.error('Initialization error:', err);
   }
 });
+
+// 스페이스바로 색상 변경
+document.addEventListener('keydown', (event) => {
+  if (event.code === 'Space') {
+    currentColor = getRandomColor(); // 새로운 랜덤 색상 할당
+    console.log('New color:', currentColor);
+  }
+});
+
+function getRandomColor() {
+  const letters = '0123456789ABCDEF';
+  let color = '#';
+  for (let i = 0; i < 6; i++) {
+    color += letters[Math.floor(Math.random() * 16)];
+  }
+  return color;
+}
+
+function onResults(results) {
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+
+  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+    const landmarks = results.multiHandLandmarks[0];
+    const indexFingerTip = landmarks[8]; // 검지 끝 좌표
+
+    lastHandTime = Date.now(); // 손이 감지된 시간을 업데이트
+
+    // 네모를 추가
+    const square = {
+      x: indexFingerTip.x * canvas.width,
+      y: indexFingerTip.y * canvas.height,
+      size: 20,
+      color: currentColor, // 현재 색상 적용
+      dx: (Math.random() - 0.5) * 5, // x축 이동 속도
+      dy: (Math.random() - 0.5) * 5, // y축 이동 속도
+    };
+    squares.push(square);
+  }
+}
+
+// 네모 업데이트 및 화면에 그리기
+function updateSquares() {
+  const currentTime = Date.now();
+
+  if (currentTime - lastHandTime > 3000) {
+    // 손이 사라진 후 3초가 지났다면 네모들이 흩어지기 시작
+    for (let square of squares) {
+      square.x += square.dx;
+      square.y += square.dy;
+      square.size *= 0.98; // 네모 크기를 줄이며 사라지게 함
+    }
+    squares = squares.filter((square) => square.size > 1); // 크기가 너무 작아지면 제거
+  }
+
+  // 캔버스 초기화
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 네모 다시 그리기
+  for (let square of squares) {
+    ctx.fillStyle = square.color;
+    ctx.fillRect(square.x - square.size / 2, square.y - square.size / 2, square.size, square.size);
+  }
+}
