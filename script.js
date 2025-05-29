@@ -112,13 +112,18 @@ function updateCanvas() {
     const img = square.image;
     if (!img || !img.complete || img.naturalWidth === 0) continue;
 
+    const aspectRatio = img.naturalWidth / img.naturalHeight;
+    const drawWidth = square.size;
+    const drawHeight = square.size / aspectRatio;
+    
     ctx.drawImage(
       img,
-      square.x - square.size / 2,
-      square.y - square.size / 2,
-      square.size,
-      square.size
+      square.x - drawWidth / 2,
+      square.y - drawHeight / 2,
+      drawWidth,
+      drawHeight
     );
+    
   }
 
   for (let tear of tears) {
@@ -153,7 +158,7 @@ function onHandResults(results) {
     const now = Date.now();
 
     // ✅ 200ms (0.2초)마다만 이미지 추가
-    if (now - lastImageSpawnTime < 120) return;
+    if (now - lastImageSpawnTime < 80) return;
 
     lastImageSpawnTime = now;
 
@@ -165,7 +170,7 @@ function onHandResults(results) {
     squares.push({
       x: indexFingerTip.x * canvas.width,
       y: indexFingerTip.y * canvas.height,
-      size: 30 + Math.random() * 50,
+      size: 40 + Math.random() * 10,
       image: loadedImages[Math.floor(Math.random() * loadedImages.length)],
       dx: (Math.random() - 0.5) * 5,
       dy: (Math.random() - 0.5) * 5,
